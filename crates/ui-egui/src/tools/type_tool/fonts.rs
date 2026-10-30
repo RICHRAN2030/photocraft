@@ -132,9 +132,8 @@ fn font_menu_model(show_in_english: bool) -> Option<Arc<FontMenuModel>> {
         {
             model.single.insert(family.clone(), label);
         }
-        let names: Vec<String> = info.names.iter().map(|(_, name)| name.clone()).collect();
-        if !names.is_empty() {
-            model.names.insert(family.clone(), names);
+        if !info.search_names.is_empty() {
+            model.names.insert(family.clone(), info.search_names.clone());
         }
     }
     // The web build's served fonts are listed before their files are fetched: the manifest's
@@ -706,7 +705,10 @@ pub(crate) fn family_picker_in(
         let comparable = crate::font_filters::apply(&mut rows, &filters, &library.favorites, &reference, &lookup);
         // The filters can drop rows (the interface language's group stays first) or, for similar
         // fonts, sort by likeness (which leaves no group boundary): count the group's rows again.
-        let n_native = if filters.similar { 0 } else { rows.iter().take_while(|(f, _)| model.is_some_and(|m| m.is_native(f))).count() };
+        // The recent group at the front is not the alphabetical list: skip it, so a recent row
+        // (native or not) can't cut the group short or stretch it past its end.
+        let n_native =
+            if filters.similar { 0 } else { rows.iter().skip(n_recent).take_while(|(f, _)| model.is_some_and(|m| m.is_native(f))).count() };
         let mut selected = edit.row.filter(|&i| rows.get(i).is_some_and(|(f, _)| *f == current)).or_else(|| rows.iter().position(|(f, _)| *f == current));
         // The menu opens on the current family, as Photoshop's does: with the recent group at the
         // top of the view when the marked row fits below it, else the marked row itself, at the

@@ -157,6 +157,30 @@ fn info_reads_names_classification_and_sample_coverage() {
     assert_eq!(plain.code_pages & (0b11111 << 17), 0, "no CJK code page bits");
 }
 
+/// A font whose legacy family name (ID 1) differs from its typographic one (ID 16) is found by
+/// either, while its label keeps the typographic name.
+#[test]
+fn search_covers_both_family_name_ids() {
+    let named = info(
+        &[
+            ("en-US", 16, "HYQiHei"),
+            ("en-US", 1, "HYQiHei-45S ExtraLight"),
+            ("en-US", 4, "HYQiHei-45S ExtraLight"),
+            ("en-US", 17, "45S"),
+        ],
+        None,
+    );
+    assert_eq!(named.names, [("en-US".to_string(), "HYQiHei".to_string())], "the menu label stays the ID 16 name");
+    assert_eq!(
+        named.search_names,
+        ["HYQiHei".to_string(), "HYQiHei-45S ExtraLight".to_string()],
+        "and the search knows the ID 1 name too"
+    );
+    // A font with no typographic name uses its ID 1 names for both.
+    let legacy = info(&[("en-US", 1, "ChillDINGothic Bold"), ("en-US", 17, "Bold")], None);
+    assert_eq!(legacy.names, legacy.search_names.iter().map(|name| ("en-US".to_string(), name.clone())).collect::<Vec<_>>());
+}
+
 /// A family with a single face is listed by "family + style", as Photoshop's Chinese menu lists
 /// these fonts: "Aa厚底黑 常规" (the style the font writes in that language), "寒蝉宽黑体 Medium".
 /// A plain Regular adds the font's full name when that says more than the family name

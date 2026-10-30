@@ -56,8 +56,13 @@ pub struct FamilyMenuInfo {
     /// The family's own names, `(language tag, name)`: what its `name` table writes for the
     /// typographic family (ID 16), or the family (ID 1) when it has none. The tag is skrifa's
     /// BCP 47 form of the record's language (`zh-CN`, `zh-TW`, `ja-JP`, `ko-KR`; empty for a
-    /// record that names none).
+    /// record that names none). This is the list a label, the script classification and a
+    /// single-face row read.
     pub names: Vec<(String, String)>,
+    /// Every family name the font writes, both name IDs (typographic and legacy), for search: a
+    /// font whose ID 1 records differ from its ID 16 ones ("HYQiHei-45S") is found by either,
+    /// while the labels and grouping above keep the ID 16 names.
+    pub search_names: Vec<String>,
     /// The representative face's full name (ID 4) in every language: "SimSun-ExtB Regular" where
     /// the family is "SimSun-ExtB". A menu shows it for a family with a single face whose style
     /// is plain Regular, as Photoshop lists such a family (see [`single_face_label`]).
@@ -197,6 +202,19 @@ fn is_english(lang: &str) -> bool {
 /// The menu information of one face of a family with `faces` faces (1 for a single-style family).
 pub fn info_of(font: &FontRef, faces: usize) -> FamilyMenuInfo {
     let names = names_of(font);
+    let mut search_names: Vec<String> = records_of(font, StringId::TYPOGRAPHIC_FAMILY_NAME)
+        .into_iter()
+        .chain(records_of(font, StringId::FAMILY_NAME))
+        .map(|(_, name)| name)
+        .collect();
+    let mut seen: Vec<String> = Vec::with_capacity(search_names.len());
+    search_names.retain(|name| {
+        if seen.contains(name) {
+            return false;
+        }
+        seen.push(name.clone());
+        true
+    });
     let full_names = records_of(font, StringId::FULL_NAME);
     let subfamilies = localized_subfamilies(font);
     let code_pages = font.os2().ok().and_then(|t| t.ul_code_page_range_1()).unwrap_or(0);
@@ -209,7 +227,7 @@ pub fn info_of(font: &FontRef, faces: usize) -> FamilyMenuInfo {
             samples.set(script);
         }
     }
-    FamilyMenuInfo { names, full_names, subfamilies, faces, scripts, samples, code_pages }
+    FamilyMenuInfo { names, search_names, full_names, subfamilies, faces, scripts, samples, code_pages }
 }
 
 /// The family's own names: every record of the typographic family name (ID 16), or of the
