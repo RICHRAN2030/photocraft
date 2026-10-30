@@ -176,6 +176,51 @@ fn localized_font(source: &[u8], english: &str, japanese: &str) -> Vec<u8> {
     bytes
 }
 
+/// A copy of `source` whose family names are `family` (ID 16) and `legacy` (ID 1), with its own
+/// PostScript name so two of them can sit in one collection.
+fn two_family_names(source: &[u8], family: &str, legacy: &str, ps: &str) -> Vec<u8> {
+    let mut bytes = source.to_vec();
+    let count = u16::from_be_bytes(bytes[4..6].try_into().unwrap()) as usize;
+    let name_record = (0..count).map(|i| 12 + i * 16).find(|r| &bytes[*r..r + 4] == b"name").unwrap();
+    let names = [(0x409u16, 1u16, legacy), (0x409, 2, "Regular"), (0x409, 6, ps), (0x409, 16, family), (0x409, 17, "Regular")];
+    let mut table = Vec::new();
+    let mut strings = Vec::new();
+    for value in [0u16, names.len() as u16, (6 + names.len() * 12) as u16] {
+        table.extend(value.to_be_bytes());
+    }
+    for (lang, id, value) in names {
+        let encoded: Vec<_> = value.encode_utf16().flat_map(u16::to_be_bytes).collect();
+        for n in [3, 1, lang, id, encoded.len() as u16, strings.len() as u16] {
+            table.extend(n.to_be_bytes());
+        }
+        strings.extend(encoded);
+    }
+    table.extend(strings);
+    let offset = bytes.len() as u32;
+    bytes[name_record + 8..name_record + 12].copy_from_slice(&offset.to_be_bytes());
+    bytes[name_record + 12..name_record + 16].copy_from_slice(&(table.len() as u32).to_be_bytes());
+    bytes.extend(table);
+    bytes
+}
+
+/// An extended family (one ID 16, several ID 1 names) is listed by the representative face's name,
+/// but every face's names are searchable.
+#[test]
+fn the_menu_searches_the_names_of_every_face_of_a_family() {
+    let faces = [
+        two_family_names(&INTER_REGULAR, "Shared Test", "Shared Test A", "SharedTestA-Regular"),
+        two_family_names(&INTER_SEMIBOLD, "Shared Test", "Shared Test B", "SharedTestB-Bold"),
+    ];
+    let mut db = FontDb::new();
+    db.register_font_data(collection(&faces));
+    let info = db.menu_info("Shared Test").expect("one family of two faces");
+    assert_eq!(info.faces, 2);
+    for name in ["Shared Test", "Shared Test A", "Shared Test B"] {
+        assert!(info.search_names.iter().any(|listed| listed == name), "{name} among {:?}", info.search_names);
+    }
+    assert!(info.names.iter().all(|(_, name)| name == "Shared Test"), "the labels stay the representative face's: {:?}", info.names);
+}
+
 /// A font that names its family in English and Japanese: the family is keyed by the English
 /// name (what documents and commands keep) and its menu entry carries both names, so a Japanese
 /// interface lists it as "ゴシック テスト" and any other as the first non-English name.

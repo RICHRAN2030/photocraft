@@ -157,6 +157,24 @@ fn info_reads_names_classification_and_sample_coverage() {
     assert_eq!(plain.code_pages & (0b11111 << 17), 0, "no CJK code page bits");
 }
 
+/// A font may point many name records at large strings; the reader keeps a bounded handful, so a
+/// small file cannot make the menu allocate without limit (CWE-770).
+#[test]
+fn name_records_are_read_within_bounds() {
+    // 100 records of 200 characters: more text than the reader may keep. (Shorter than 65535 bytes
+    // in all, since a name record's string offset is a `u16`.)
+    let big = "N".repeat(200);
+    let text: Vec<u8> = big.encode_utf16().flat_map(u16::to_be_bytes).collect();
+    let records: Vec<(u16, u16, u16, u16, &[u8])> = (0..100).map(|_| (3, 1, 0x0409, 16, text.as_slice())).collect();
+    let table = rebuilt_legacy(crate::fonts::INTER_REGULAR.as_slice(), &records);
+    let font = FontRef::new(&table).expect("synthetic font parses");
+    let names = records_of(&font, StringId::TYPOGRAPHIC_FAMILY_NAME);
+    assert!(!names.is_empty(), "the first records are read");
+    assert!(names.len() <= 64, "{} records", names.len());
+    let total: usize = names.iter().map(|(_, name)| name.len()).sum();
+    assert!(total <= 8 * 1024, "{total} bytes of name text");
+}
+
 /// A font whose legacy family name (ID 1) differs from its typographic one (ID 16) is found by
 /// either, while its label keeps the typographic name.
 #[test]

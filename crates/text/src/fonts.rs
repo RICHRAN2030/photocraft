@@ -430,11 +430,22 @@ impl FontDb {
             return info.clone();
         }
         let info = (|| {
-            let info = self.fcx.collection.family_by_name(family)?;
-            let face = representative_face(&info)?;
+            let family_info = self.fcx.collection.family_by_name(family)?;
+            let face = representative_face(&family_info)?;
             let blob = face.load(Some(&mut self.fcx.source_cache))?;
             let font = skrifa::FontRef::from_index(blob.as_ref(), face.index()).ok()?;
-            Some(crate::font_menu::info_of(&font, info.fonts().len()))
+            let mut info = crate::font_menu::info_of(&font, family_info.fonts().len());
+            // An extended family (one family name, several ID 1 names) lists its representative
+            // face's name, but every face's names are searchable.
+            for other in family_info.fonts() {
+                if other.index() == face.index() && other.source().id() == face.source().id() {
+                    continue;
+                }
+                let Some(blob) = other.load(Some(&mut self.fcx.source_cache)) else { continue };
+                let Ok(other_font) = skrifa::FontRef::from_index(blob.as_ref(), other.index()) else { continue };
+                crate::font_menu::add_face_search_names(&mut info, &other_font);
+            }
+            Some(info)
         })();
         self.menu_cache.insert(family.to_string(), info.clone());
         info

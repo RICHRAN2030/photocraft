@@ -59,9 +59,10 @@ pub struct FamilyMenuInfo {
     /// record that names none). This is the list a label, the script classification and a
     /// single-face row read.
     pub names: Vec<(String, String)>,
-    /// Every family name the font writes, both name IDs (typographic and legacy), for search: a
-    /// font whose ID 1 records differ from its ID 16 ones ("HYQiHei-45S") is found by either,
-    /// while the labels and grouping above keep the ID 16 names.
+    /// Every family name the family's faces write, under both name IDs (typographic and legacy),
+    /// for search: a font whose ID 1 records differ from its ID 16 ones ("HYQiHei-45S") is found by
+    /// either, and an extended family's other faces by their own names too, while the labels and
+    /// grouping above keep the representative face's ID 16 names.
     pub search_names: Vec<String>,
     /// The representative face's full name (ID 4) in every language: "SimSun-ExtB Regular" where
     /// the family is "SimSun-ExtB". A menu shows it for a family with a single face whose style
@@ -108,6 +109,14 @@ const KORE_PROBE: &str = "가나다라한글국어";
 const HANT_PROBE: &str = "們這個來為國說時會對學與關點";
 /// Bopomofo, which only Traditional Chinese fonts have.
 const HANT_BOPO: &str = "ㄅㄆㄇㄈ";
+
+/// The most records one name ID is read from, and the most text they may hold. A font can point
+/// many records at one large string, so the blob's size alone doesn't bound the decoded text
+/// (CWE-770); a menu lists a handful of languages and no family name is longer than a sentence.
+const MAX_NAME_RECORDS: usize = 64;
+const MAX_NAME_BYTES: usize = 8 << 10;
+/// The most searchable names a family keeps, all its faces together.
+const MAX_SEARCH_NAMES: usize = 256;
 
 /// The writing systems a family serves, from what it says about itself, in the order that names
 /// the fewest fonts wrongly:
@@ -202,19 +211,7 @@ fn is_english(lang: &str) -> bool {
 /// The menu information of one face of a family with `faces` faces (1 for a single-style family).
 pub fn info_of(font: &FontRef, faces: usize) -> FamilyMenuInfo {
     let names = names_of(font);
-    let mut search_names: Vec<String> = records_of(font, StringId::TYPOGRAPHIC_FAMILY_NAME)
-        .into_iter()
-        .chain(records_of(font, StringId::FAMILY_NAME))
-        .map(|(_, name)| name)
-        .collect();
-    let mut seen: Vec<String> = Vec::with_capacity(search_names.len());
-    search_names.retain(|name| {
-        if seen.contains(name) {
-            return false;
-        }
-        seen.push(name.clone());
-        true
-    });
+    let search_names = search_names_of(font);
     let full_names = records_of(font, StringId::FULL_NAME);
     let subfamilies = localized_subfamilies(font);
     let code_pages = font.os2().ok().and_then(|t| t.ul_code_page_range_1()).unwrap_or(0);
@@ -228,6 +225,39 @@ pub fn info_of(font: &FontRef, faces: usize) -> FamilyMenuInfo {
         }
     }
     FamilyMenuInfo { names, search_names, full_names, subfamilies, faces, scripts, samples, code_pages }
+}
+
+/// Every family name a face writes, under both name IDs, deduplicated: what a search matches.
+fn search_names_of(font: &FontRef) -> Vec<String> {
+    let mut names: Vec<String> = records_of(font, StringId::TYPOGRAPHIC_FAMILY_NAME)
+        .into_iter()
+        .chain(records_of(font, StringId::FAMILY_NAME))
+        .map(|(_, name)| name)
+        .collect();
+    let mut seen: Vec<String> = Vec::with_capacity(names.len());
+    names.retain(|name| {
+        if seen.contains(name) {
+            return false;
+        }
+        seen.push(name.clone());
+        true
+    });
+    names.truncate(MAX_SEARCH_NAMES);
+    names
+}
+
+/// Adds another face's family names to `info`'s search names: in an extended family (one ID 16,
+/// several ID 1s) only the representative face reaches [`FamilyMenuInfo::names`], but every face's
+/// names are searchable.
+pub fn add_face_search_names(info: &mut FamilyMenuInfo, font: &FontRef) {
+    for name in search_names_of(font) {
+        if info.search_names.len() >= MAX_SEARCH_NAMES {
+            return;
+        }
+        if !info.search_names.contains(&name) {
+            info.search_names.push(name);
+        }
+    }
 }
 
 /// The family's own names: every record of the typographic family name (ID 16), or of the
@@ -245,11 +275,27 @@ pub fn localized_subfamilies(font: &FontRef) -> Vec<(String, String)> {
 }
 
 /// A face's name records of one ID, without blanks or duplicates: the Unicode ones the font stack
-/// reads, then names kept only in a legacy CJK encoding ([`legacy_records`]).
+/// reads, then names kept only in a legacy CJK encoding ([`legacy_records`]). Bounded by
+/// [`MAX_NAME_RECORDS`] and [`MAX_NAME_BYTES`]: the name table is untrusted input.
 fn records_of(font: &FontRef, id: StringId) -> Vec<(String, String)> {
-    let mut names: Vec<(String, String)> =
-        font.localized_strings(id).map(|s| (s.language().unwrap_or("").to_string(), s.to_string())).filter(|(_, name)| !name.trim().is_empty()).collect();
-    names.extend(legacy_records(font, id));
+    let mut names: Vec<(String, String)> = Vec::new();
+    let mut bytes = 0usize;
+    for record in font.localized_strings(id) {
+        if names.len() >= MAX_NAME_RECORDS {
+            break;
+        }
+        let language = record.language().unwrap_or("").to_string();
+        let name = record.to_string();
+        if name.trim().is_empty() {
+            continue;
+        }
+        if bytes + name.len() > MAX_NAME_BYTES {
+            break;
+        }
+        bytes += name.len();
+        names.push((language, name));
+    }
+    names.extend(legacy_records(font, id, MAX_NAME_BYTES.saturating_sub(bytes), MAX_NAME_RECORDS.saturating_sub(names.len())));
     let mut seen: Vec<(String, String)> = Vec::with_capacity(names.len());
     names.retain(|name| {
         if seen.contains(name) {
@@ -268,7 +314,7 @@ fn records_of(font: &FontRef, id: StringId) -> Vec<(String, String)> {
 /// what these records are written in. Nothing on the web, which has no system fonts and must stay
 /// under its size gate.
 #[cfg(not(target_arch = "wasm32"))]
-fn legacy_records(font: &FontRef, id: StringId) -> Vec<(String, String)> {
+fn legacy_records(font: &FontRef, id: StringId, bytes_left: usize, records_left: usize) -> Vec<(String, String)> {
     /// The encoding a name record may use besides Unicode, and the language its text is in.
     fn codec(platform: u16, encoding: u16) -> Option<(&'static encoding_rs::Encoding, &'static str)> {
         use encoding_rs::{BIG5, EUC_KR, GBK, SHIFT_JIS};
@@ -289,7 +335,11 @@ fn legacy_records(font: &FontRef, id: StringId) -> Vec<(String, String)> {
     let (Some(count), Some(strings)) = (be16(2), be16(4).map(usize::from)) else {
         return out;
     };
+    let mut budget = bytes_left;
     for i in 0..usize::from(count) {
+        if out.len() >= records_left {
+            break;
+        }
         let record = 6 + i * 12;
         let (Some(platform), Some(encoding), Some(name), Some(length), Some(offset)) =
             (be16(record), be16(record + 2), be16(record + 6), be16(record + 8), be16(record + 10))
@@ -312,13 +362,18 @@ fn legacy_records(font: &FontRef, id: StringId) -> Vec<(String, String)> {
         if had_errors || text.trim().is_empty() {
             continue;
         }
-        out.push((language.to_string(), text.into_owned()));
+        let text = text.into_owned();
+        if text.len() > budget {
+            break;
+        }
+        budget -= text.len();
+        out.push((language.to_string(), text));
     }
     out
 }
 
 #[cfg(target_arch = "wasm32")]
-fn legacy_records(_font: &FontRef, _id: StringId) -> Vec<(String, String)> {
+fn legacy_records(_font: &FontRef, _id: StringId, _bytes_left: usize, _records_left: usize) -> Vec<(String, String)> {
     Vec::new()
 }
 
