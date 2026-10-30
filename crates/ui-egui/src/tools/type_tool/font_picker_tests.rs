@@ -929,15 +929,21 @@ fn localized_font_names_label_the_menu_but_pick_the_family() {
         preview: FontPreview::Medium,
         recents: Vec::new(),
     };
-    let mut h = Harness::builder().with_size(vec2(600.0, 900.0)).with_max_steps(SETTLE_STEPS).build_ui_state(
-        |ui, s: &mut State| {
-            s.popup = ui.make_persistent_id(egui::IdSalt::new("type-font")).with("popup");
-            let fams = s.families.clone();
-            let recents = s.recents.clone();
-            font_picker_in(ui, &mut s.current, 170.0, &fams, s.preview, &recents);
-        },
-        state,
-    );
+    // Without craft-fonts the test stack has no Japanese face, and the harness panics on a glyph
+    // no font can draw: this test is about the labels, so missing glyphs may be tofu.
+    let mut h = Harness::builder()
+        .with_size(vec2(600.0, 900.0))
+        .with_max_steps(SETTLE_STEPS)
+        .allow_missing_glyphs()
+        .build_ui_state(
+            |ui, s: &mut State| {
+                s.popup = ui.make_persistent_id(egui::IdSalt::new("type-font")).with("popup");
+                let fams = s.families.clone();
+                let recents = s.recents.clone();
+                font_picker_in(ui, &mut s.current, 170.0, &fams, s.preview, &recents);
+            },
+            state,
+        );
     // The localized menu lists Japanese names, so install the app's bundled theme fonts
     // (including the craft-fonts Japanese faces) before the first pass shapes text.
     crate::theme::install_fonts(&h.ctx);
