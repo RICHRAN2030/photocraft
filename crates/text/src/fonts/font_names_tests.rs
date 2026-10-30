@@ -176,17 +176,23 @@ fn localized_font(source: &[u8], english: &str, japanese: &str) -> Vec<u8> {
     bytes
 }
 
-/// Show Font Names in English off: a font that names its family in Japanese is listed by that
-/// name, keyed by the English family the menus and documents keep; English-only fonts are not.
+/// A font that names its family in English and Japanese: the family is keyed by the English
+/// name (what documents and commands keep) and its menu entry carries both names, so a Japanese
+/// interface lists it as "ゴシック テスト" and any other as the first non-English name.
 #[test]
-fn localized_family_names_map_english_families_to_native_names() {
+fn a_fonts_own_names_are_in_its_menu_info() {
     let mut db = FontDb::new();
     assert_eq!(db.register_font_data(localized_font(&INTER_REGULAR, "Gothic Test", "ゴシック テスト")), ["Gothic Test"]);
     assert!(db.families().iter().any(|f| f == "Gothic Test"));
-    let local = db.localized_family_names();
-    assert_eq!(local.get("Gothic Test").map(String::as_str), Some("ゴシック テスト"));
-    assert!(!local.contains_key(DEFAULT_FAMILY));
-    assert!(local.values().all(|v| !v.is_empty()));
+    let info = db.menu_info("Gothic Test").expect("every registered family has menu information");
+    let name = |script| crate::font_menu::display_name("Gothic Test", &info.names, script);
+    assert_eq!(name(Some(crate::cjk::CjkScript::Japanese)).as_deref(), Some("ゴシック テスト"));
+    assert_eq!(name(Some(crate::cjk::CjkScript::SimplifiedChinese)).as_deref(), Some("ゴシック テスト"), "no Chinese name: the first non-English one");
+    assert_eq!(name(None).as_deref(), Some("ゴシック テスト"), "English interface with names off");
+    assert!(db.menu_index().contains_key("Gothic Test"));
+    assert!(db.menu_info("No Such Family").is_none());
+    // The bundled fonts have no other names.
+    assert!(db.menu_index()["Inter"].names.iter().all(|(lang, name)| lang.starts_with("en") || name == "Inter"));
 }
 
 /// A craft-fonts manifest entry for `bytes`, as `build.rs` writes one per manifest line.
