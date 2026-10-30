@@ -175,6 +175,38 @@ fn name_records_are_read_within_bounds() {
     assert!(total <= 8 * 1024, "{total} bytes of name text");
 }
 
+/// A font whose records mostly name nothing is bounded the same way: blank records count as
+/// examined, so the menu cannot be made to walk a table of them, and a handful before the real
+/// names changes nothing.
+#[test]
+fn blank_records_count_toward_the_allowance() {
+    let blank: &[u8] = &[];
+    let mut records: Vec<(u16, u16, u16, u16, &[u8])> = vec![(3, 1, 0x0409, 16, blank); 70];
+    let late: Vec<u8> = "Late Name".encode_utf16().flat_map(u16::to_be_bytes).collect();
+    records.push((3, 1, 0x0409, 16, &late));
+    let table = rebuilt_legacy(crate::fonts::INTER_REGULAR.as_slice(), &records);
+    let font = FontRef::new(&table).expect("synthetic font parses");
+    assert!(records_of(&font, StringId::TYPOGRAPHIC_FAMILY_NAME).is_empty(), "seventy blanks use the allowance up");
+    // A few blanks first are fine: the names after them still list.
+    let mut records: Vec<(u16, u16, u16, u16, &[u8])> = vec![(3, 1, 0x0409, 16, blank); 3];
+    records.push((3, 1, 0x0409, 16, &late));
+    let table = rebuilt_legacy(crate::fonts::INTER_REGULAR.as_slice(), &records);
+    let font = FontRef::new(&table).expect("synthetic font parses");
+    assert_eq!(records_of(&font, StringId::TYPOGRAPHIC_FAMILY_NAME), [("en-US".to_string(), "Late Name".to_string())]);
+}
+
+/// Records of another name ID never use up the legacy allowance: a font that lists its legacy
+/// family name (ID 1) beside the typographic one (ID 16) still has the ID 16 one read.
+#[test]
+fn legacy_records_of_other_ids_do_not_use_up_the_allowance() {
+    let gb2312 = [0xCE_u8, 0xB4, 0xC0, 0xB4, 0xD3, 0xAB, 0xBA, 0xDA];
+    let mut records: Vec<(u16, u16, u16, u16, &[u8])> = (0..100).map(|_| (1, 25, 33, 1, gb2312.as_slice())).collect();
+    records.push((1, 25, 33, 16, &gb2312));
+    let table = rebuilt_legacy(crate::fonts::INTER_REGULAR.as_slice(), &records);
+    let font = FontRef::new(&table).expect("synthetic font parses");
+    assert_eq!(records_of(&font, StringId::TYPOGRAPHIC_FAMILY_NAME), [("zh-Hans".to_string(), "未来荧黑".to_string())]);
+}
+
 /// A font whose legacy family name (ID 1) differs from its typographic one (ID 16) is found by
 /// either, while its label keeps the typographic name.
 #[test]

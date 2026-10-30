@@ -16,8 +16,11 @@ pub fn families() -> Arc<Vec<String>> {
         return v.clone();
     }
     // Never wait for the background font scan (#3021): until it finishes the menus draw their
-    // loading box (`fonts_ready`), so the empty list is not shown.
-    let mut v = menu_engine().map(|e| e.lock().map(|mut e| e.fonts.families()).unwrap_or_default()).unwrap_or_default();
+    // loading box (`fonts_ready`), so the empty list is not shown. The fallback is not cached
+    // either: `mark_shared` moves the generation before the scan thread publishes the engine, so
+    // that frame's key would otherwise keep the empty list for good.
+    let engine = menu_engine();
+    let mut v = engine.as_ref().map(|e| e.lock().map(|mut e| e.fonts.families()).unwrap_or_default()).unwrap_or_default();
     for f in photocraft_text::served::families() {
         if !v.contains(&f) {
             v.push(f);
@@ -25,7 +28,9 @@ pub fn families() -> Arc<Vec<String>> {
     }
     v.sort_by_key(|s| s.to_lowercase());
     let v = Arc::new(v);
-    *cached = Some((key, v.clone()));
+    if engine.is_some() {
+        *cached = Some((key, v.clone()));
+    }
     v
 }
 

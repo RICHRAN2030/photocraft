@@ -110,9 +110,10 @@ const HANT_PROBE: &str = "們這個來為國說時會對學與關點";
 /// Bopomofo, which only Traditional Chinese fonts have.
 const HANT_BOPO: &str = "ㄅㄆㄇㄈ";
 
-/// The most records one name ID is read from, and the most text they may hold. A font can point
-/// many records at one large string, so the blob's size alone doesn't bound the decoded text
-/// (CWE-770); a menu lists a handful of languages and no family name is longer than a sentence.
+/// The most records one name ID is examined from, and the most text they may hold. A font can
+/// point many records at one large string, or fill the table with ones that name nothing, so the
+/// blob's size alone bounds neither the decoding work nor the memory (CWE-770); a menu lists a
+/// handful of languages and no family name is longer than a sentence.
 const MAX_NAME_RECORDS: usize = 64;
 const MAX_NAME_BYTES: usize = 8 << 10;
 /// The most searchable names a family keeps, all its faces together.
@@ -276,14 +277,18 @@ pub fn localized_subfamilies(font: &FontRef) -> Vec<(String, String)> {
 
 /// A face's name records of one ID, without blanks or duplicates: the Unicode ones the font stack
 /// reads, then names kept only in a legacy CJK encoding ([`legacy_records`]). Bounded by
-/// [`MAX_NAME_RECORDS`] and [`MAX_NAME_BYTES`]: the name table is untrusted input.
+/// [`MAX_NAME_RECORDS`] records examined — blank ones count, so a font whose records mostly name
+/// nothing cannot make the menu walk the whole table — and by [`MAX_NAME_BYTES`] of text: the
+/// name table is untrusted input.
 fn records_of(font: &FontRef, id: StringId) -> Vec<(String, String)> {
     let mut names: Vec<(String, String)> = Vec::new();
     let mut bytes = 0usize;
+    let mut examined = 0usize;
     for record in font.localized_strings(id) {
-        if names.len() >= MAX_NAME_RECORDS {
+        if examined >= MAX_NAME_RECORDS {
             break;
         }
+        examined += 1;
         let language = record.language().unwrap_or("").to_string();
         let name = record.to_string();
         if name.trim().is_empty() {
@@ -295,7 +300,8 @@ fn records_of(font: &FontRef, id: StringId) -> Vec<(String, String)> {
         bytes += name.len();
         names.push((language, name));
     }
-    names.extend(legacy_records(font, id, MAX_NAME_BYTES.saturating_sub(bytes), MAX_NAME_RECORDS.saturating_sub(names.len())));
+    // The legacy records get what the Unicode ones left of both budgets.
+    names.extend(legacy_records(font, id, MAX_NAME_BYTES.saturating_sub(bytes), MAX_NAME_RECORDS.saturating_sub(examined)));
     let mut seen: Vec<(String, String)> = Vec::with_capacity(names.len());
     names.retain(|name| {
         if seen.contains(name) {
@@ -336,8 +342,9 @@ fn legacy_records(font: &FontRef, id: StringId, bytes_left: usize, records_left:
         return out;
     };
     let mut budget = bytes_left;
+    let mut examined = 0usize;
     for i in 0..usize::from(count) {
-        if out.len() >= records_left {
+        if examined >= records_left {
             break;
         }
         let record = 6 + i * 12;
@@ -352,6 +359,8 @@ fn legacy_records(font: &FontRef, id: StringId, bytes_left: usize, records_left:
         let Some((codec, language)) = codec(platform, encoding) else {
             continue;
         };
+        // The allowance pays for decoding, so only a record this reader can decode uses it up.
+        examined += 1;
         let Some(start) = strings.checked_add(usize::from(offset)) else {
             continue;
         };
