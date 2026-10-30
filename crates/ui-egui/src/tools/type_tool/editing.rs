@@ -383,7 +383,7 @@ pub(crate) fn commit_shortcut(app: &mut PhotocraftApp, ctx: &egui::Context) -> b
         let (rows, _, _) = font_menu_rows(&families, model.as_deref(), &edit.query, &edit.recents);
         let selected =
             edit.row.filter(|&i| rows.get(i).is_some_and(|(f, _)| **f == edit.current)).or_else(|| rows.iter().position(|(f, _)| **f == edit.current));
-        let family = accept_row(&rows, &edit.text, selected).and_then(|i| rows.get(i)).map(|(f, _)| (*f).clone());
+        let family = accept_row(&rows, &edit.text, selected, model.as_deref()).and_then(|i| rows.get(i)).map(|(f, _)| (*f).clone());
         if let Some(family) = family {
             photocraft_text::served::request(&family);
             app.note_recent_font(&family);

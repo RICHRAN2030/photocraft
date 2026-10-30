@@ -998,6 +998,23 @@ fn installed_chinese_fonts_label_their_style_in_chinese() {
     crate::i18n::set_current(previous);
 }
 
+/// An English menu keeps its English labels and order, but a search still finds a font by any
+/// name its font gives itself ("未来" for Glow Sans SC), and Enter accepts that exact name.
+#[test]
+fn an_english_menu_finds_fonts_by_their_other_names() {
+    let families: Vec<String> = ["Glow Sans SC", "Inter"].iter().map(|s| s.to_string()).collect();
+    let mut model = super::FontMenuModel::default();
+    model.names.insert("Glow Sans SC".into(), vec!["Glow Sans SC".into(), "未来荧黑".into()]);
+    let rows = |q: &str| -> Vec<(String, String)> {
+        super::font_menu_rows(&families, Some(&model), q, &[]).0.into_iter().map(|(f, l)| (f.clone(), l.to_string())).collect()
+    };
+    assert_eq!(rows(""), [("Glow Sans SC".into(), "Glow Sans SC".into()), ("Inter".into(), "Inter".into())], "English labels, the order as before");
+    assert_eq!(rows("未来"), [("Glow Sans SC".into(), "Glow Sans SC".into())], "by the font's own name");
+    let listed = [(&families[0], "Glow Sans SC"), (&families[1], "Inter")];
+    assert_eq!(super::accept_row(&listed, "未来荧黑", None, Some(&model)), Some(0), "Enter takes the font whose own name was typed");
+    assert_eq!(super::accept_row(&listed, "Glow Sans", None, Some(&model)), Some(0), "a shorter query keeps the first row");
+}
+
 /// A style shows the subfamily the font writes in the interface's language, else its own name as
 /// written: never a word-by-word translation, which mixed languages ("Wide 极细").
 #[test]

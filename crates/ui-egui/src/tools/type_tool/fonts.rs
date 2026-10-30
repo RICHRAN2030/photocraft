@@ -90,13 +90,11 @@ pub fn sync_font_names(ctx: &egui::Context, show_in_english: bool) {
 }
 
 /// The menu model for the interface language and preference, cached until the registered fonts
-/// change. `None` for an English (or other non-CJK) interface with English names on: its menus
-/// are what they always were.
+/// change. Every interface gets one, so a search finds a font by any name it gives itself in any
+/// language; an interface that shows English names keeps its labels and order all the same (no
+/// row is relabelled, so `font_menu_rows` neither sorts nor groups).
 fn font_menu_model(show_in_english: bool) -> Option<Arc<FontMenuModel>> {
     let script = ui_script();
-    if script.is_none() && show_in_english {
-        return None;
-    }
     type Cached = Option<((u64, u64, u8, bool), Arc<FontMenuModel>)>;
     static CACHE: std::sync::Mutex<Cached> = std::sync::Mutex::new(None);
     let key =
@@ -112,8 +110,13 @@ fn font_menu_model(show_in_english: bool) -> Option<Arc<FontMenuModel>> {
     let engine = menu_engine()?;
     let index = engine.lock().map(|mut e| e.fonts.menu_index()).unwrap_or_default();
     let mut model = FontMenuModel { script, ..FontMenuModel::default() };
+    // Names in their own language are shown in a Chinese, Japanese or Korean interface (whatever
+    // the preference) and wherever the preference turns English names off; an English interface
+    // with English names on keeps the family names it always showed.
+    let named = !show_in_english || script.is_some();
     for (family, info) in &index {
-        if !show_in_english
+        if named
+            && !show_in_english
             && let Some(label) = photocraft_text::font_menu::display_name(family, &info.names, script)
         {
             model.labels.insert(family.clone(), label);
@@ -123,7 +126,8 @@ fn font_menu_model(show_in_english: bool) -> Option<Arc<FontMenuModel>> {
         }
         // A family of one face reads "family + style" ("Aa厚底黑 常规"), as Photoshop lists it;
         // several faces get a style menu under the family name instead.
-        if info.faces == 1
+        if named
+            && info.faces == 1
             && let Some(label) = photocraft_text::font_menu::single_face_label(family, info, script, show_in_english)
         {
             model.single.insert(family.clone(), label);
@@ -516,10 +520,17 @@ pub(super) fn font_picker_in(
 }
 
 /// The row Enter and ⌘/Ctrl+Enter apply to a pending family query: a full name wins over a
-/// substring match (including localized family names), then the highlighted row, then the first.
-pub(super) fn accept_row(rows: &[(&String, &str)], text: &str, selected: Option<usize>) -> Option<usize> {
-    let exact = text.to_lowercase();
-    rows.iter().position(|(f, shown)| f.to_lowercase() == exact || shown.to_lowercase() == exact).or(selected).or_else(|| (!rows.is_empty()).then_some(0))
+/// substring match, whether it is the family's English name, the label the row shows, or another
+/// name its font gives itself ("未来荧黑" finds Glow Sans SC in an English menu); then the
+/// highlighted row, then the first.
+pub(super) fn accept_row(rows: &[(&String, &str)], text: &str, selected: Option<usize>, model: Option<&FontMenuModel>) -> Option<usize> {
+    let exact = text.trim().to_lowercase();
+    let is_exact = |(family, shown): &(&String, &str)| {
+        family.to_lowercase() == exact
+            || shown.to_lowercase() == exact
+            || model.is_some_and(|m| m.names.get(family.as_str()).is_some_and(|names| names.iter().any(|name| name.to_lowercase() == exact)))
+    };
+    rows.iter().position(is_exact).or(selected).or_else(|| (!rows.is_empty()).then_some(0))
 }
 
 /// Transient input belongs to one field, independently of the applied family and its peers.
@@ -725,7 +736,7 @@ pub(crate) fn family_picker_in(
         }
         if enter && !edit.text.trim().is_empty() {
             // A full name wins over a substring match (including localized family names).
-            let accept = accept_row(&rows, &edit.text, selected);
+            let accept = accept_row(&rows, &edit.text, selected, model);
             if let Some((f, _)) = accept.and_then(|i| rows.get(i)) {
                 // Acceptance is an application to the selected characters, even when a
                 // mixed selection's representative already has this family (as row clicks do).
