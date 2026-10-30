@@ -39,8 +39,9 @@ fn set(script: CjkScript) -> Set {
     }
 }
 
-/// Latin letters and digits first, then the script's own characters in its set's order, then
-/// the other scripts' characters, then everything else, each group by code point.
+/// ASCII first (letters, digits, spaces and punctuation alike, in code point order), then the
+/// script's own characters in its set's order, then the other scripts' characters, then
+/// everything else, each group by code point.
 const SET: u32 = 1 << 24;
 const OTHER_SCRIPT: u32 = 2 << 24;
 const OTHER: u32 = 3 << 24;
@@ -54,7 +55,9 @@ pub fn menu_sort_key(label: &str, script: Option<CjkScript>) -> Vec<u32> {
 
 fn rank_of(c: char, set: Option<&Set>) -> u32 {
     let c = fold(c);
-    if c.is_ascii_alphanumeric() {
+    // All ASCII, a space or a comma included: those sort with the letters, so "Open Sans" reads
+    // before "OpenSymbol" and "Aa 厚底" before "Aa厚底" instead of after every Han character.
+    if c.is_ascii() {
         return u32::from(c);
     }
     if let Some(rank) = set.and_then(|s| s.rank(c)) {
@@ -110,6 +113,8 @@ mod tests {
         assert_eq!(key("adobe", CjkScript::SimplifiedChinese), key("Adobe", CjkScript::SimplifiedChinese), "case is ignored");
         assert!(folded("ＡＣＭＥ", "adobe"), "full-width forms are the same letters: acme < adobe");
         assert!(folded("07NikumaruFont", "Arial"), "digits before letters");
+        assert!(folded("Open Sans", "OpenSymbol"), "a space sorts before a letter, as in a dictionary");
+        assert!(folded("Aa 厚底", "Aa厚底"), "and before a Han character, so the Latin name still leads");
     }
 
     /// A character the writing system's set doesn't have sorts after its own characters, by

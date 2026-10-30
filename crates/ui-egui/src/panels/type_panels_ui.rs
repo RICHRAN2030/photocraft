@@ -647,7 +647,7 @@ pub fn glyphs_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         let options = crate::type_tool::style_options(&family);
         let mut s = style.clone();
         let opts: Vec<(String, &str)> = options.iter().map(|(stored, label)| (stored.clone(), label.as_str())).collect();
-        if crate::widgets::dropdown(ui, "glyph-style", tl!("Style"), &mut s, &opts, 110.0) {
+        if crate::widgets::dropdown_literal(ui, "glyph-style", tl!("Style"), &mut s, &opts, 110.0) {
             app.ui.type_panels.glyph_family = family.clone();
             app.ui.type_panels.glyph_style = s;
         }

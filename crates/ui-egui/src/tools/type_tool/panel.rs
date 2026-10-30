@@ -253,7 +253,7 @@ fn type_sections(app: &mut PhotocraftApp, ui: &mut egui::Ui, character: bool, pa
             let mut style = selected_style(&c);
             let opts: Vec<(String, String)> = style_options(if fam.is_empty() { &c.font_family } else { &fam });
             let opts_ref: Vec<(String, &str)> = opts.iter().map(|(a, b)| (a.clone(), b.as_str())).collect();
-            if crate::widgets::dropdown(ui, "props-type-style", tl!("Style"), &mut style, &opts_ref, full) {
+            if crate::widgets::dropdown_literal(ui, "props-type-style", tl!("Style"), &mut style, &opts_ref, full) {
                 apply(app, ui.ctx(), json!({"fontStyle": style}));
             }
         });

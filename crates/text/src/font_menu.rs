@@ -304,6 +304,13 @@ fn legacy_records(_font: &FontRef, _id: StringId) -> Vec<(String, String)> {
     Vec::new()
 }
 
+/// The name `names` gives for `script` — the interface's writing system — when the font has
+/// one in that language: a style label uses it and no other language's, so a Chinese menu shows
+/// a font's own "Bold" rather than borrowing its Japanese subfamily.
+pub fn name_for_script(names: &[(String, String)], script: CjkScript) -> Option<String> {
+    names.iter().find(|(lang, name)| !name.trim().is_empty() && cjk::locale_script(Some(lang)) == Some(script)).map(|(_, name)| name.clone())
+}
+
 /// What a font menu calls a family with a single face, as Photoshop lists such a family by
 /// "family + style": the style the font writes in the interface's language — "Aa厚底黑 常规",
 /// "寒蝉宽黑体 Medium" — or, for a plain Regular, the font's full name when it names one beyond

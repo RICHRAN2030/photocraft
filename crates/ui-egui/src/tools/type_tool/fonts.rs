@@ -192,8 +192,8 @@ pub(super) fn font_menu_rows<'a>(
         Some(m) if m.script.is_some() => {
             rows.sort_by_cached_key(|(f, label)| (!m.is_native(f), photocraft_text::collate::menu_sort_key(label, m.script), f.to_lowercase()));
         }
-        // Localized names in an English interface: sorted as shown, as before.
-        Some(m) if !m.labels.is_empty() => rows.sort_by_cached_key(|(_, label)| label.to_lowercase()),
+        // Names in their own language in an English interface: sorted as shown, as before.
+        Some(m) if !m.labels.is_empty() || !m.single.is_empty() => rows.sort_by_cached_key(|(_, label)| label.to_lowercase()),
         _ => {}
     }
     let native = rows.iter().filter(|(f, _)| model.is_some_and(|m| m.is_native(f))).count();
@@ -376,9 +376,12 @@ pub(super) fn style_labels(
             // Only a Chinese, Japanese or Korean interface localizes a style; the others show the
             // name as the font writes it, whatever language that is in.
             let label = prefer
-                .and_then(|script| faces.iter().find(|face| face.style == style).and_then(|face| {
-                    photocraft_text::font_menu::display_name(&face.style, &face.localized_styles, Some(script))
-                }))
+                .and_then(|script| {
+                    faces
+                        .iter()
+                        .find(|face| face.style == style)
+                        .and_then(|face| photocraft_text::font_menu::name_for_script(&face.localized_styles, script))
+                })
                 .unwrap_or_else(|| style.clone());
             (style, label)
         })
@@ -678,7 +681,7 @@ pub(crate) fn family_picker_in(
         });
         let lookup = crate::font_filters::lookup_in(library.traits.clone());
         // No recent group while a filter is on: the filters narrow the alphabetical list alone.
-        let (mut rows, n_recent, n_native) = font_menu_rows(families, model, &edit.query, if filters.any() { &[] } else { &edit.recents });
+        let (mut rows, n_recent, _) = font_menu_rows(families, model, &edit.query, if filters.any() { &[] } else { &edit.recents });
         // Show Similar Fonts compares with the font current when it was turned on (or the menu
         // opened), as the recent group stays put: each arrow step applies a font, and sorting
         // around that one sent the next step back to the font before.
@@ -690,6 +693,9 @@ pub(crate) fn family_picker_in(
             current.clone()
         };
         let comparable = crate::font_filters::apply(&mut rows, &filters, &library.favorites, &reference, &lookup);
+        // The filters can drop rows (the interface language's group stays first) or, for similar
+        // fonts, sort by likeness (which leaves no group boundary): count the group's rows again.
+        let n_native = if filters.similar { 0 } else { rows.iter().take_while(|(f, _)| model.is_some_and(|m| m.is_native(f))).count() };
         let mut selected = edit.row.filter(|&i| rows.get(i).is_some_and(|(f, _)| *f == current)).or_else(|| rows.iter().position(|(f, _)| *f == current));
         // The menu opens on the current family, as Photoshop's does: with the recent group at the
         // top of the view when the marked row fits below it, else the marked row itself, at the
@@ -783,7 +789,9 @@ pub(crate) fn family_picker_in(
                     // The first `n_recent` rows are the recent group, above a line (`font_menu_rows`).
                     for (i, &(f, shown)) in rows.iter().enumerate() {
                         let recent_row = i < n_recent;
-                        if n_recent > 0 && (i == n_recent || (n_native > 0 && i == n_recent + n_native)) {
+                        // A line above the interface language's group and above the rest, whichever
+                        // of the two groups comes first.
+                        if (n_recent > 0 && i == n_recent) || (n_native > 0 && i == n_recent + n_native) {
                             ui.separator();
                         }
                         // Only rows on screen read their font's format and styles, and an expanded

@@ -46,7 +46,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         let style_family = if fam.is_empty() { styles_at(app).map(|(c, _)| c.font_family).unwrap_or_default() } else { fam.clone() };
         let opts: Vec<(String, String)> = style_options(&style_family);
         let opts_ref: Vec<(String, &str)> = opts.iter().map(|(a, b)| (a.clone(), b.as_str())).collect();
-        if crate::widgets::dropdown(ui, "type-style", tl!("Style"), &mut style, &opts_ref, 110.0) {
+        if crate::widgets::dropdown_literal(ui, "type-style", tl!("Style"), &mut style, &opts_ref, 110.0) {
             app.ui.tool_options.type_style = style.clone();
             apply(app, ui.ctx(), json!({"fontStyle": style}));
         }

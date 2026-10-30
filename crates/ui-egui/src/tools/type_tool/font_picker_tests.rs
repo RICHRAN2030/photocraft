@@ -972,7 +972,8 @@ fn localized_font_names_label_the_menu_but_pick_the_family() {
 /// English name.
 #[test]
 fn a_single_face_family_shows_its_style_in_the_menu() {
-    let families: Vec<String> = ["Aa HouDiHei", "Inter"].iter().map(|s| s.to_string()).collect();
+    // Scrambled on purpose: the rows sort by the label they show.
+    let families: Vec<String> = ["Inter", "Aa HouDiHei"].iter().map(|s| s.to_string()).collect();
     let mut model = super::FontMenuModel::default();
     model.single.insert("Aa HouDiHei".into(), "Aa厚底黑 常规".into());
     let labels = |query: &str| -> Vec<String> {
@@ -1011,13 +1012,25 @@ fn style_labels_show_the_fonts_own_names() {
         italic: false,
         axes: Vec::new(),
     };
-    let faces = [face("Wide ExtraLight", &[("en-US", "Wide ExtraLight"), ("zh-Hans", "宽 极细")]), face("Regular", &[("en-US", "Regular")])];
-    let options = |script| crate::type_tool::fonts::style_labels(vec!["Regular".into(), "Wide ExtraLight".into()], &faces, script);
+    let faces = [
+        face("Wide ExtraLight", &[("en-US", "Wide ExtraLight"), ("zh-Hans", "宽 极细")]),
+        face("Regular", &[("en-US", "Regular")]),
+        // Japanese only: a Chinese menu keeps the font's own "Bold" rather than borrowing it.
+        face("Bold", &[("en-US", "Bold"), ("ja-JP", "ボールド")]),
+    ];
+    let options = |script| {
+        crate::type_tool::fonts::style_labels(vec!["Regular".into(), "Wide ExtraLight".into(), "Bold".into()], &faces, script)
+    };
     let hans = Some(photocraft_text::cjk::CjkScript::SimplifiedChinese);
-    assert_eq!(options(hans), [("Regular".into(), "Regular".into()), ("Wide ExtraLight".into(), "宽 极细".into())]);
+    assert_eq!(
+        options(hans),
+        [("Regular".into(), "Regular".into()), ("Wide ExtraLight".into(), "宽 极细".into()), ("Bold".into(), "Bold".into())]
+    );
+    let ja = Some(photocraft_text::cjk::CjkScript::Japanese);
+    assert_eq!(options(ja).last().cloned(), Some(("Bold".into(), "ボールド".into())), "a Japanese menu does show it");
     assert_eq!(
         options(None),
-        [("Regular".into(), "Regular".into()), ("Wide ExtraLight".into(), "Wide ExtraLight".into())],
+        [("Regular".into(), "Regular".into()), ("Wide ExtraLight".into(), "Wide ExtraLight".into()), ("Bold".into(), "Bold".into())],
         "an English interface shows the font's own words"
     );
 }

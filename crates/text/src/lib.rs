@@ -159,8 +159,9 @@ fn new_shared() -> std::sync::Mutex<TextEngine> {
     let mut engine = if uses_system_fonts() { TextEngine::with_system_fonts() } else { TextEngine::new() };
     engine.fonts.mark_shared();
     // The font menus' names, grouping and samples, read here on the scan thread: drawing a menu
-    // must never wait for a font file.
-    engine.fonts.menu_index();
+    // must never wait for a font file. The warm-up fills the per-family cache without building
+    // the map a caller would only throw away.
+    engine.fonts.warm_menu_index();
     std::sync::Mutex::new(engine)
 }
 
